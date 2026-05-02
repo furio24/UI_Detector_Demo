@@ -37,27 +37,33 @@ export const SYSTEM_PROMPT = `당신은 전문적인 UI/UX QA 엔지니어이자
 - 출력 결과에는 이 JSON 배열 외에 어떠한 인사말, 설명 텍스트, 마크다운 코드 블록 표기(\`\`\`json)도 포함해서는 안 됩니다. 오직 파싱 가능한 순수 JSON 텍스트만 반환하세요.`;
 
 export async function analyzeUI(imageBuffer: Buffer, mimeType: string) {
-  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+  // 요청하신 gemini-2.5-flash 모델로 변경 (존재하지 않는 모델일 경우 오류가 발생할 수 있습니다.)
+  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-  const result = await model.generateContent([
-    SYSTEM_PROMPT,
-    {
-      inlineData: {
-        data: imageBuffer.toString("base64"),
-        mimeType
-      }
-    }
-  ]);
-
-  const response = await result.response;
-  const text = response.text();
-  
   try {
-    // Sometimes the model might still include markdown blocks despite instructions
+    const result = await model.generateContent([
+      SYSTEM_PROMPT,
+      {
+        inlineData: {
+          data: imageBuffer.toString("base64"),
+          mimeType
+        }
+      }
+    ]);
+
+    const response = await result.response;
+    const text = response.text();
+    console.log("AI 응답 원문:", text);
+    
+    // JSON 배열 부분만 추출
     const jsonMatch = text.match(/\[[\s\S]*\]/);
-    return JSON.parse(jsonMatch ? jsonMatch[0] : text);
-  } catch (e) {
-    console.error("Failed to parse JSON response:", text);
-    throw new Error("Invalid response from AI");
+    if (!jsonMatch) {
+      throw new Error("AI가 유효한 분석 결과를 보내지 않았습니다.");
+    }
+    
+    return JSON.parse(jsonMatch[0]);
+  } catch (e: any) {
+    console.error("Gemini API 상세 에러:", e);
+    throw new Error(e.message || "분석 중 오류 발생");
   }
 }
