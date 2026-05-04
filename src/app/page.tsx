@@ -16,6 +16,7 @@ export default function Home() {
   const [issues, setIssues] = useState<any[]>([]);
   const [history, setHistory] = useState<any[]>([]);
   const [selectedIssueIdx, setSelectedIssueIdx] = useState<number | null>(null);
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
 
   // 페이지 로드 시 히스토리 불러오기
   useEffect(() => {
@@ -28,7 +29,7 @@ export default function Home() {
         .from('analyses')
         .select('*')
         .order('created_at', { ascending: false })
-        .limit(6);
+        .limit(12); // 최근 12개로 확장
       
       if (error) {
         console.error("히스토리 불러오기 실패:", error.message);
@@ -38,6 +39,24 @@ export default function Home() {
     } catch (e) {
       console.error("네트워크 오류 (History):", e);
     }
+  };
+
+  const loadRecord = async (item: any) => {
+    setIsHistoryLoading(true);
+    
+    // 기록을 불러오는 느낌을 주기 위한 의도적인 짧은 지연
+    await new Promise(resolve => setTimeout(resolve, 600));
+    
+    setIssues(item.issues || []);
+    setHasResult(true);
+    if (item.image_url) {
+      setImagePreview(item.image_url);
+    } else {
+      setImagePreview(null);
+    }
+    setSelectedIssueIdx(null);
+    setIsHistoryLoading(false);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const clearHistory = async () => {
@@ -90,20 +109,49 @@ export default function Home() {
       setIssues(results);
       setHasResult(true);
 
-      // Supabase에 저장 시도
-      const { error: dbError } = await supabase.from('analyses').insert([
-        {
-          issues: results,
+      // --- Supabase 저장 로직 ---
+      let publicUrl = null;
+      try {
+        // 1. 이미지 업로드 시도 (기존 'screenshots' 버킷 사용)
+        const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.png`;
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('screenshots')
+          .upload(fileName, fileToAnalyze);
+        
+        if (!uploadError && uploadData) {
+          const { data: { publicUrl: url } } = supabase.storage
+            .from('screenshots')
+            .getPublicUrl(fileName);
+          publicUrl = url;
+          console.log("이미지 업로드 성공:", publicUrl);
+        } else {
+          console.error("이미지 업로드 실패:", uploadError?.message);
+          alert(`이미지 업로드 실패: ${uploadError?.message}\n(Storage 정책 설정을 확인해 주세요.)`);
         }
-      ]);
+      } catch (storageErr) {
+        console.error("Storage 작업 중 에러:", storageErr);
+      }
+
+      // 2. DB Insert (image_url 포함 시도)
+      const insertData: any = { issues: results };
+      if (publicUrl) insertData.image_url = publicUrl;
+
+      const { error: dbError } = await supabase.from('analyses').insert([insertData]);
 
       if (dbError) {
-        console.error("DB 저장 실패 상세:", dbError.message, dbError.details, dbError.hint);
-        alert(`저장 실패: ${dbError.message}`);
+        // 만약 image_url 컬럼이 없어서 실패했다면, 제외하고 다시 시도
+        if (dbError.message.includes('column "image_url" does not exist')) {
+          console.warn("DB에 'image_url' 컬럼이 없어 일반 기록만 저장합니다.");
+          await supabase.from('analyses').insert([{ issues: results }]);
+        } else {
+          console.error("DB 저장 실패:", dbError.message);
+          alert(`저장 실패: ${dbError.message}`);
+        }
       } else {
         console.log("DB 저장 성공!");
         fetchHistory(); // 목록 즉시 갱신
       }
+      // -------------------------
 
     } catch (error: any) {
       console.error("스캔 중 에러:", error);
@@ -169,30 +217,70 @@ export default function Home() {
               </button>
             )}
           </div>
+
+          {isHistoryLoading && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm">
+              <div className="bg-white p-8 rounded-2xl shadow-2xl flex flex-col items-center gap-4 animate-in zoom-in-95 duration-300">
+                <div className="w-12 h-12 border-4 border-emerald-100 border-t-emerald-500 rounded-full animate-spin" />
+                <p className="font-bold text-slate-700 text-lg">기록을 불러오는 중입니다...</p>
+              </div>
+            </div>
+          )}
+
           {history.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {history.map((item) => (
-                <div key={item.id} className="p-4 bg-slate-50 rounded-xl border border-slate-100 hover:border-emerald-200 transition-all cursor-pointer group">
-                  <p className="text-[10px] text-slate-400 mb-2">{new Date(item.created_at).toLocaleString('ko-KR')}</p>
-                  <div className="flex items-center justify-between">
-                     <div className="flex gap-3">
-                       <div className="flex flex-col">
-                         <span className="text-[10px] text-slate-400 uppercase">Critical</span>
-                         <span className="text-sm font-bold text-red-500">
-                           {item.summary?.critical ?? item.issues?.filter((i: any) => i.severity === 'CRITICAL').length ?? 0}
-                         </span>
-                       </div>
-                       <div className="flex flex-col">
-                         <span className="text-[10px] text-slate-400 uppercase">Warning</span>
-                         <span className="text-sm font-bold text-amber-500">
-                           {item.summary?.warning ?? item.issues?.filter((i: any) => i.severity === 'WARNING').length ?? 0}
-                         </span>
-                       </div>
-                     </div>
-                     <span className="text-[10px] font-bold text-emerald-600 opacity-0 group-hover:opacity-100 transition-opacity">기록 보기 →</span>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {history.map((item) => {
+                const critical = item.issues?.filter((i: any) => i.severity === 'CRITICAL').length ?? 0;
+                const warning = item.issues?.filter((i: any) => i.severity === 'WARNING').length ?? 0;
+                const score = Math.max(0, 100 - (critical * 15) - (warning * 3));
+                const isPass = score >= 86;
+                const isReview = score >= 70 && score < 86;
+                
+                const statusLabel = isPass ? 'PASS' : (isReview ? 'REVIEW' : 'FAIL');
+                const statusColor = isPass ? 'text-emerald-600 bg-emerald-50 border-emerald-100' : (isReview ? 'text-amber-600 bg-amber-50 border-amber-100' : 'text-red-600 bg-red-50 border-red-100');
+
+                return (
+                  <div 
+                    key={item.id} 
+                    onClick={() => loadRecord(item)}
+                    className="group bg-white rounded-2xl border border-slate-100 hover:border-emerald-200 hover:shadow-xl transition-all duration-300 cursor-pointer overflow-hidden flex flex-col"
+                  >
+                    {/* Card Header: Score & Status */}
+                    <div className="p-5 flex items-center justify-between border-b border-slate-50">
+                      <div className="flex flex-col">
+                        <span className="text-[10px] text-slate-400 uppercase font-black tracking-widest">Stability Score</span>
+                        <span className="text-3xl font-black text-slate-800">{score}</span>
+                      </div>
+                      <div className={`px-3 py-1 rounded-full text-[10px] font-black border ${statusColor}`}>
+                        {statusLabel}
+                      </div>
+                    </div>
+
+                    {/* Card Body: Info */}
+                    <div className="p-5 flex-1">
+                      <p className="text-[10px] font-bold text-slate-400 mb-4">{new Date(item.created_at).toLocaleString('ko-KR')}</p>
+                      <div className="flex gap-6">
+                        <div className="flex flex-col">
+                          <span className="text-[10px] text-slate-400 font-bold uppercase">Critical</span>
+                          <span className="text-lg font-black text-red-500">{critical}</span>
+                        </div>
+                        <div className="flex flex-col">
+                          <span className="text-[10px] text-slate-400 font-bold uppercase">Warning</span>
+                          <span className="text-lg font-black text-amber-500">{warning}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Card Footer: Action */}
+                    <div className="px-5 py-4 bg-slate-50 group-hover:bg-emerald-500 transition-colors">
+                      <div className="flex items-center justify-center gap-2 text-[11px] font-bold text-slate-400 group-hover:text-white">
+                        기록 보기
+                        <span className="transform group-hover:translate-x-1 transition-transform">→</span>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           ) : (
             <div className="py-12 text-center text-slate-400 text-sm">

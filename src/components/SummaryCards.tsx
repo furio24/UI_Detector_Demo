@@ -18,25 +18,18 @@ export default function SummaryCards({ critical, warning, total }: SummaryCardsP
   const score = Math.max(0, 100 - (critical * 15) - (warning * 3));
   
   // 상태 결정
-  let status = { 
-    label: 'PASS', 
-    text: 'UI가 안정적입니다.', 
-    color: 'text-emerald-500', 
-    bg: 'bg-emerald-50',
-    border: 'border-emerald-100',
-    icon: CheckCircle2 
-  };
+  let status;
   
-  if (score < 70) {
+  if (score >= 86) {
     status = { 
-      label: 'FAIL', 
-      text: '반드시 수정해야합니다.', 
-      color: 'text-red-600', 
-      bg: 'bg-red-50',
-      border: 'border-red-100',
-      icon: AlertCircle 
+      label: 'PASS', 
+      text: 'UI 상태가 매우 안정적입니다.', 
+      color: 'text-emerald-500', 
+      bg: 'bg-emerald-50',
+      border: 'border-emerald-100',
+      icon: CheckCircle2 
     };
-  } else if (score < 85) {
+  } else if (score >= 70) {
     status = { 
       label: 'REVIEW', 
       text: '검토가 필요합니다', 
@@ -44,6 +37,15 @@ export default function SummaryCards({ critical, warning, total }: SummaryCardsP
       bg: 'bg-amber-50',
       border: 'border-amber-100',
       icon: AlertTriangle 
+    };
+  } else {
+    status = { 
+      label: 'FAIL', 
+      text: '반드시 수정해야합니다.', 
+      color: 'text-red-600', 
+      bg: 'bg-red-50',
+      border: 'border-red-100',
+      icon: AlertCircle 
     };
   }
 
@@ -63,7 +65,7 @@ export default function SummaryCards({ critical, warning, total }: SummaryCardsP
           <div 
             className={cn(
               "h-full transition-all duration-1000 ease-out",
-              score >= 85 ? "bg-emerald-500" : score >= 70 ? "bg-amber-500" : "bg-red-500"
+              score >= 86 ? "bg-emerald-500" : score >= 70 ? "bg-amber-500" : "bg-red-500"
             )}
             style={{ width: `${score}%` }}
           />
