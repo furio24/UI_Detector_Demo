@@ -28,16 +28,16 @@ export const SYSTEM_PROMPT = `당신은 전문적인 UI/UX QA 엔지니어이자
   }
 ]
 
-[좌표(box_2d) 작성 규칙 - 매우 중요]
-- box_2d의 좌표는 픽셀(px) 단위가 아닌, 이미지 전체 크기를 1.0으로 본 상대 좌표(0.0 ~ 1.0)로 반환해야 합니다. (예: [0.15, 0.2, 0.25, 0.4])
-- 배열의 순서는 반드시 [최상단 Y (ymin), 최좌측 X (xmin), 최하단 Y (ymax), 최우측 X (xmax)] 순서를 지키세요.
-- 박스는 문제가 발생한 UI 요소 전체를 넉넉하게 감싸야 합니다.
+[좌표(box_2d) 작성 규칙 - 정밀도 향상]
+- box_2d: [ymin, xmin, ymax, xmax] (0 ~ 1000 사이의 정수)
+  * ymin: 상단(Top), xmin: 좌측(Left), ymax: 하단(Bottom), xmax: 우측(Right)
+- 박스는 이슈가 있는 요소를 **최대한 좁고 정확하게(Tight Fit)** 감싸야 합니다.
+- 이미지를 1000x1000 크기로 정규화하여 계산하세요.
 
 [제약 사항]
 - 출력 결과에는 이 JSON 배열 외에 어떠한 인사말, 설명 텍스트, 마크다운 코드 블록 표기(\`\`\`json)도 포함해서는 안 됩니다. 오직 파싱 가능한 순수 JSON 텍스트만 반환하세요.`;
 
 export async function analyzeUI(imageBuffer: Buffer, mimeType: string) {
-  // 요청하신 gemini-2.5-flash 모델로 변경 (존재하지 않는 모델일 경우 오류가 발생할 수 있습니다.)
   const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
   try {
@@ -55,13 +55,24 @@ export async function analyzeUI(imageBuffer: Buffer, mimeType: string) {
     const text = response.text();
     console.log("AI 응답 원문:", text);
     
-    // JSON 배열 부분만 추출
     const jsonMatch = text.match(/\[[\s\S]*\]/);
     if (!jsonMatch) {
       throw new Error("AI가 유효한 분석 결과를 보내지 않았습니다.");
     }
     
-    return JSON.parse(jsonMatch[0]);
+    const parsedData = JSON.parse(jsonMatch[0]);
+
+    // 0~1000 좌표를 0~1로 정규화
+    return parsedData.map((item: any) => {
+      if (item.box_2d && Array.isArray(item.box_2d)) {
+        return {
+          ...item,
+          box_2d: item.box_2d.map((val: number) => val / 1000)
+        };
+      }
+      return item;
+    });
+
   } catch (e: any) {
     console.error("Gemini API 상세 에러:", e);
     throw new Error(e.message || "분석 중 오류 발생");
