@@ -48,7 +48,12 @@ export default function ResultList({ issues, selectedIssueIdx, onSelect }: Resul
                 </span>
                 <div className="flex flex-col">
                   <span className="text-sm font-bold text-slate-700">{issue.element_name}</span>
-                  <span className="text-xs text-slate-500">{issue.description}</span>
+                  <span className="text-xs text-slate-500 mb-1">{issue.description}</span>
+                  {issue.location_context && (
+                    <span className="text-[10px] text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded w-fit italic">
+                      📍 {issue.location_context}
+                    </span>
+                  )}
                 </div>
               </div>
               <div className={cn(
